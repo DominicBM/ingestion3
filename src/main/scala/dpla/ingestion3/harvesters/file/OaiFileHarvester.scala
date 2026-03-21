@@ -16,7 +16,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 
 import java.io.{ByteArrayInputStream, File, FileInputStream}
 import java.util.zip.GZIPInputStream
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success, Try, Using}
 import scala.xml._
 
 /** Entry for harvesting XML serialized from an OAI endpoint
@@ -119,26 +119,30 @@ class OaiFileHarvester(
           .getOrElse(
             throw new IllegalArgumentException("Couldn't load ZIP files.")
           )
-        LocalHarvester
-          .iter(inputStream)
-          .foreach(result =>
-            handleFile(result, unixEpoch) match {
-              case Failure(exception) =>
-                logger.error(s"Caught exception on $inFile.", exception)
-              case Success(_) => // do nothing
-            }
-          )
-        IOUtils.closeQuietly(inputStream)
+        Using(inputStream) { stream =>
+          LocalHarvester
+            .iter(stream)
+            .foreach(result =>
+              handleFile(result, unixEpoch) match {
+                case Failure(exception) =>
+                  logger.error(s"Caught exception on $inFile.", exception)
+                case Success(_) => // do nothing
+              }
+            )
+        }.failed.foreach(e => logger.error(s"Failed to process ZIP $inFile.", e))
       })
 
       // Handle gzipped XML files (each .gz contains a single OAI-PMH XML document)
       Option(inFiles.listFiles(FileFilters.gzFilter)).getOrElse(Array.empty).foreach(inFile => {
-        val gzStream = new GZIPInputStream(new FileInputStream(inFile))
-        val result = FileResult(inFile.getName, Some(IOUtils.toByteArray(gzStream)))
-        IOUtils.closeQuietly(gzStream)
-        handleFile(result, unixEpoch) match {
+        Using(new GZIPInputStream(new FileInputStream(inFile))) { gzStream =>
+          FileResult(inFile.getName, Some(IOUtils.toByteArray(gzStream)))
+        } match {
           case Failure(exception) => logger.error(s"Caught exception on $inFile.", exception)
-          case Success(_)         => // do nothing
+          case Success(result) =>
+            handleFile(result, unixEpoch) match {
+              case Failure(exception) => logger.error(s"Caught exception on $inFile.", exception)
+              case Success(_)         => // do nothing
+            }
         }
       })
     } finally {

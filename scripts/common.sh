@@ -413,8 +413,11 @@ check_disk_space() {
     local min_gb="${1:-20}"
     local data_dir="${DPLA_DATA:-/home/ec2-user/data}"
     local available_gb
-    # df -BG is GNU/Linux-only (EC2); macOS df lacks the -B flag
+    # Try GNU df -BG (Linux/EC2); fall back to POSIX df -Pk in KB for macOS
     available_gb=$(df -BG "$data_dir" 2>/dev/null | awk 'NR==2 {gsub(/G/,"",$4); print $4}')
+    if [[ -z "$available_gb" || ! "$available_gb" =~ ^[0-9]+$ ]]; then
+        available_gb=$(df -Pk "$data_dir" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}')
+    fi
     if [[ -z "$available_gb" || ! "$available_gb" =~ ^[0-9]+$ ]]; then
         return 0  # Can't parse — skip check rather than fail
     fi
