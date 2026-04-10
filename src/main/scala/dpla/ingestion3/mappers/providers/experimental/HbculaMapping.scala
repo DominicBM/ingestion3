@@ -86,18 +86,16 @@ class HbculaMapping extends XmlMapping with XmlExtractor {
   override def dplaUri(data: Document[NodeSeq]): ZeroToOne[URI] =
     mintDplaItemUri(data)
 
-  override def dataProvider(data: Document[NodeSeq]): ZeroToMany[EdmAgent] = {
-    // Most sets supply dc:source (institution name). The rwwl set omits it;
-    // fall back to dcterms:isPartOf (collection name) so records are not dropped.
-    val fromSource = extractStrings(data \ "metadata" \\ "source")
+  override def dataProvider(data: Document[NodeSeq]): ZeroToMany[EdmAgent] =
+    // dc:source holds the institution name for most sets. Some sets (e.g. rwwl)
+    // omit it from the OAI export even though the CONTENTdm Repository field is
+    // populated — this is a data issue to raise with HBCULA, not something the
+    // mapper should paper over. Records without dc:source will fail the required
+    // field check cleanly.
+    extractStrings(data \ "metadata" \\ "source")
       .flatMap(_.splitAtDelimiter(";"))
       .map(nameOnlyAgent)
-    if (fromSource.nonEmpty) fromSource.slice(0, 1)
-    else
-      extractStrings(data \ "metadata" \\ "isPartOf")
-        .map(nameOnlyAgent)
-        .slice(0, 1)
-  }
+      .slice(0, 1)
 
   override def isShownAt(data: Document[NodeSeq]): ZeroToMany[EdmWebResource] =
     extractStrings(data \ "metadata" \\ "identifier")
